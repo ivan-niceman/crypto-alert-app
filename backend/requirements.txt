@@ -1,0 +1,8 @@
+aiohttp
+python-socketio
+websockets
+python-telegram-bot
+python-dotenv
+requests
+
+pip install aiohttp python-socketio websockets python-telegram-bot python-dotenv requests

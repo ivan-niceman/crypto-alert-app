@@ -1,0 +1,25 @@
+.alert-form {
+  margin-top: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.alert-form input[type="number"] {
+  flex-grow: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  box-shadow: inset 0px 0px 4px rgba(0, 0, 0, .7);
+}
+
+.alert-form button {
+  background-color: #2a3c4d;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
