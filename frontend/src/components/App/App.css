@@ -1,0 +1,41 @@
+.App {
+  padding: 30px 15px 0;
+  max-width: 1920px;
+  height: 100%;
+  margin: 0 auto;
+}
+
+.title {
+  text-align: center;
+  color: var(--color-text);
+  font-size: 30px;
+}
+
+@media(max-width: 600px) {
+  .title {
+    font-size: 26px;
+  }
+}
+
+.connection-indicator {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-left: 10px;
+  border-radius: 50%;
+  transition: background-color 1s ease;
+}
+
+.crypto-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}

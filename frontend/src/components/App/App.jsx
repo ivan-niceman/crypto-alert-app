@@ -1,10 +1,9 @@
 // src/App.jsx
 import { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
-import CryptoCard from './components/CryptoCard.jsx';
-import './App.css';
-import { sendMessage as sendTelegramMessageViaBackend } from './services/telegramService.js';
-import notificationSound from './assets/notification.mp3';
+import CryptoCard from '../CryptoCard/CryptoCard.jsx';
+import { sendMessage as sendTelegramMessageViaBackend } from '../../services/telegramService.js';
+import notificationSound from '../../assets/notification.mp3';
 
 const MY_FAVORITE_SYMBOLS = [
   'BTC',
@@ -22,6 +21,8 @@ const MY_FAVORITE_SYMBOLS = [
 const ALERTS_STORAGE_KEY = 'cryptoAlerts';
 const LAST_TRIGGERED_PRICES_STORAGE_KEY = 'lastTriggeredCryptoPrices';
 const SOCKET_SERVER_URL = 'http://localhost:5001';
+
+const MAX_ALERTS_PER_PAIR = 10;
 
 // --- ГЛОБАЛЬНЫЙ СОКЕТ ---
 const socket = io(SOCKET_SERVER_URL, {
@@ -73,6 +74,7 @@ export default function App() {
       symbol: symbol,
       price: null,
       previousPrice: null,
+      priceChangePercent: 0,
       pair: `${symbol}/USDT`,
     })),
   );
@@ -82,76 +84,111 @@ export default function App() {
   );
   const [isConnected, setIsConnected] = useState(socket.connected);
 
-  const hasReceivedData = cryptos.some((c) => c.price !== null);
-
   const audioRef = useRef(null);
-  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
-  const previousPricesForAlertsRef = useRef({});
   const triggeredAlertsRef = useRef({});
 
+  // Функция для разблокировки аудио контекста
   const unlockAudio = useCallback(() => {
-    if (isAudioUnlocked || !audioRef.current) return;
-    audioRef.current
-      .play()
-      .then(() => {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        setIsAudioUnlocked(true);
-        console.log('Audio context unlocked by user interaction.');
-        document.removeEventListener('click', unlockAudio);
-      })
-      .catch(() => {
-        // Ошибка может возникнуть, если пользователь еще не кликал. Это нормально.
-      });
-  }, [isAudioUnlocked]);
+    if (audioRef.current && audioRef.current.paused) {
+      // Пытаемся воспроизвести звук без звука, чтобы разблокировать контекст
+      audioRef.current.muted = true;
+      audioRef.current.play().catch(() => {});
+      // Удаляем слушатель после первой попытки
+      document.removeEventListener('click', unlockAudio);
+    }
+  }, []);
 
+  // Удаляем проверку на количество алертов, оставляем только проверку на дубликаты
   const addAlert = useCallback((pair, targetPrice) => {
     const price = parseFloat(targetPrice);
     if (isNaN(price) || price <= 0) {
-      console.error('Invalid price received from bot or form:', price);
+      console.error('Invalid price format');
       return;
     }
     setAlerts((prev) => {
-      const currentAlertsForPair = prev[pair] || [];
-      if (!currentAlertsForPair.some((alert) => alert.price === price)) {
-        const newAlert = { price };
-        return {
-          ...prev,
-          [pair]: [...currentAlertsForPair, newAlert].sort(
-            (a, b) => a.price - b.price,
-          ),
-        };
+      const currentAlerts = prev[pair] || [];
+      // Оставляем только проверку на дубликаты
+      if (currentAlerts.some((a) => a.price === price)) {
+        return prev;
       }
-      return prev;
+      const newAlerts = [...currentAlerts, { price }].sort(
+        (a, b) => a.price - b.price,
+      );
+      return { ...prev, [pair]: newAlerts };
     });
   }, []);
 
-  // Эффект для подписки на события сокета и аудио
+  const removeAlert = useCallback((pair, targetPriceToRemove) => {
+    setAlerts((prev) => {
+      const updatedAlerts = (prev[pair] || []).filter(
+        (a) => a.price !== targetPriceToRemove,
+      );
+      delete triggeredAlertsRef.current[`${pair}-${targetPriceToRemove}`];
+      if (updatedAlerts.length === 0) {
+        const { [pair]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [pair]: updatedAlerts };
+    });
+  }, []);
+
+  // const playNotificationSound = useCallback(() => {
+  //   audioRef.current
+  //     ?.play()
+  //     .catch((e) => console.error('Audio playback error:', e));
+  // }, []);
+
+  // Функция для воспроизведения звука уведомления
+  const playNotificationSound = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = false; // Включаем звук
+      audioRef.current.currentTime = 0; // Перематываем на начало
+      audioRef.current
+        .play()
+        .catch((e) => console.error('Audio playback error:', e));
+    }
+  }, []);
+
   useEffect(() => {
-    audioRef.current = new Audio(notificationSound);
-    audioRef.current.volume = 0.3;
+    // audioRef.current = new Audio(notificationSound);
+    // audioRef.current.volume = 0.3;
+    // const unlockAudio = () => {
+    //   if (!audioRef.current) return;
+    //   audioRef.current
+    //     .play()
+    //     .then(() => {
+    //       audioRef.current.pause();
+    //       audioRef.current.currentTime = 0;
+    //       setIsAudioUnlocked(true);
+    //       document.removeEventListener('click', unlockAudio);
+    //     })
+    //     .catch(() => {});
+    // };
+
+    // Создаем аудио элемент один раз
+    if (!audioRef.current) {
+      audioRef.current = new Audio(notificationSound);
+      audioRef.current.volume = 0.3;
+    }
     document.addEventListener('click', unlockAudio);
 
     const onConnect = () => setIsConnected(true);
     const onDisconnect = () => setIsConnected(false);
 
     const onInitialPrices = (data) => {
-      if (data && data.cryptos && Array.isArray(data.cryptos)) {
+      if (data?.cryptos) {
         setCryptos((currentList) =>
           currentList.map((existingCrypto) => {
             const newInfo = data.cryptos.find(
               (c) => c.symbol === existingCrypto.symbol,
             );
-            if (newInfo) {
-              previousPricesForAlertsRef.current[existingCrypto.pair] =
-                undefined;
-              return {
-                ...existingCrypto,
-                price: newInfo.price,
-                previousPrice: null,
-              };
-            }
-            return existingCrypto;
+            return newInfo
+              ? {
+                  ...existingCrypto,
+                  price: newInfo.price,
+                  previousPrice: newInfo.price,
+                }
+              : existingCrypto;
           }),
         );
       }
@@ -161,11 +198,11 @@ export default function App() {
       setCryptos((prevCryptos) =>
         prevCryptos.map((crypto) => {
           if (crypto.symbol === update.symbol) {
-            previousPricesForAlertsRef.current[crypto.pair] = crypto.price;
             return {
               ...crypto,
               price: update.price,
-              previousPrice: update.previousPrice,
+              previousPrice: crypto.price,
+              priceChangePercent: update.priceChangePercent,
             };
           }
           return crypto;
@@ -174,9 +211,7 @@ export default function App() {
     };
 
     const onAddAlertFromBot = (data) => {
-      if (data && data.pair && data.price) {
-        addAlert(data.pair, data.price);
-      }
+      if (data?.pair && data.price) addAlert(data.pair, data.price);
     };
 
     socket.on('connect', onConnect);
@@ -195,7 +230,6 @@ export default function App() {
     };
   }, [addAlert, unlockAudio]);
 
-  // Остальные эффекты и функции
   useEffect(() => {
     localStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(alerts));
   }, [alerts]);
@@ -206,32 +240,15 @@ export default function App() {
     );
   }, [lastTriggeredPrices]);
 
-  const removeAlert = useCallback((pair, targetPriceToRemove) => {
-    setAlerts((prev) => {
-      const updatedAlertsForPair = (prev[pair] || []).filter(
-        (alert) => alert.price !== targetPriceToRemove,
-      );
-      delete triggeredAlertsRef.current[`${pair}-${targetPriceToRemove}`];
-      if (updatedAlertsForPair.length === 0) {
-        const { [pair]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [pair]: updatedAlertsForPair };
-    });
-  }, []);
-
-  const playNotificationSound = useCallback(() => {
-    audioRef.current
-      ?.play()
-      .catch((error) => console.error('Audio playback error:', error));
-  }, []);
-
   useEffect(() => {
     cryptos.forEach((crypto) => {
-      if (crypto.price === null) return;
-      const pairKey = crypto.pair;
-      const currentPrice = crypto.price;
-      const previousPriceForAlert = previousPricesForAlertsRef.current[pairKey];
+      const { price: currentPrice, previousPrice, pair: pairKey } = crypto;
+      if (
+        currentPrice === null ||
+        previousPrice === null ||
+        currentPrice === previousPrice
+      )
+        return;
       const pairAlerts = alerts[pairKey] || [];
 
       pairAlerts.forEach((targetAlert) => {
@@ -239,30 +256,16 @@ export default function App() {
         const alertId = `${pairKey}-${targetPrice}`;
         if (triggeredAlertsRef.current[alertId]) return;
 
-        let shouldTrigger = false;
-        if (
-          previousPriceForAlert !== undefined &&
-          previousPriceForAlert !== null &&
-          currentPrice !== null
-        ) {
-          if (
-            (previousPriceForAlert < targetPrice &&
-              currentPrice >= targetPrice) ||
-            (previousPriceForAlert > targetPrice && currentPrice <= targetPrice)
-          ) {
-            shouldTrigger = true;
-          }
-        }
+        const minPrice = Math.min(previousPrice, currentPrice);
+        const maxPrice = Math.max(previousPrice, currentPrice);
 
-        if (shouldTrigger) {
-          const movementDir = previousPriceForAlert < targetPrice ? '📈' : '📉';
+        if (targetPrice >= minPrice && targetPrice <= maxPrice) {
+          const movementDir = currentPrice > previousPrice ? '📈' : '📉';
           const movementText =
-            previousPriceForAlert < targetPrice
-              ? 'поднялась выше'
-              : 'опустилась ниже';
+            currentPrice > previousPrice ? 'поднялась выше' : 'опустилась ниже';
           const message = `${pairKey} ${movementDir} ${movementText} ${targetPrice.toFixed(
             5,
-          )} USDT.`;
+          )} USDT. (Сейчас: ${currentPrice.toFixed(5)} USDT)`;
 
           console.log(
             `АЛЕРТ СРАБОТАЛ! ${pairKey} ${movementText} ${targetPrice.toFixed(
@@ -288,9 +291,11 @@ export default function App() {
     setLastTriggeredPrices,
   ]);
 
+  const hasReceivedData = cryptos.some((c) => c.price !== null);
+
   return (
     <div className="App">
-      <h1>
+      <h1 className="title">
         Курсы криптовалют (Binance)
         <span
           className="connection-indicator"
@@ -298,8 +303,8 @@ export default function App() {
         ></span>
       </h1>
 
-      <div
-        className="crypto-grid"
+      <ul
+        className="crypto-list"
         style={{ opacity: hasReceivedData ? '1' : '.5' }}
       >
         {cryptos.map((crypto) => (
@@ -310,13 +315,15 @@ export default function App() {
             pair={crypto.pair}
             price={crypto.price}
             previousPrice={crypto.previousPrice}
+            priceChangePercent={crypto.priceChangePercent}
             targetPrices={alerts[crypto.pair] || []}
+            alertsLimit={MAX_ALERTS_PER_PAIR}
             onAddAlert={addAlert}
             onRemoveAlert={removeAlert}
             lastTriggeredPrice={lastTriggeredPrices[crypto.pair]}
           />
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

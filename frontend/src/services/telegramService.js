@@ -1,4 +1,3 @@
-// Импортируем наш глобальный сокет
 import { socket } from '../socket.js';
 
 const sendMessage = (message) => {

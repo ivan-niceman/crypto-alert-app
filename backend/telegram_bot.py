@@ -4,7 +4,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # Состояния для диалога
 SELECTING_COIN, TYPING_PRICE = range(2)
 
-# --- Обработчики команд и сообщений (теперь это обычные функции, а не async) ---
+# --- Обработчики команд и сообщений ---
 
 def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user

@@ -1,0 +1,144 @@
+.crypto-card {
+  background-color: var(--color-bg-card);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.crypto-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  color: var(--color-text);
+}
+
+.crypto-card-subtitle {
+  margin: 0;
+  cursor: default;
+}
+
+.crypto-card-subtitle>span {
+  color: var(--color-secondary-text);
+  font-weight: 400;
+  font-size: 10px;
+}
+
+.pair-name {
+  font-weight: 700;
+  font-size: 14px;
+  cursor: default;
+}
+
+.crypto-name {
+  font-size: 12px;
+  color: var(--color-secondary-text);
+  cursor: default;
+}
+
+.crypto-card-container {
+  display: flex;
+  justify-content: space-between;
+  column-gap: 5px;
+  margin-bottom: 10px;
+}
+
+.crypto-card-price {
+  font-size: 16px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.crypto-card-price.price-up {
+  color: var(--color-price-up);
+}
+
+.crypto-card-price.price-down {
+  color: var(--color-price-down);
+}
+
+.crypto-card-change-percent {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-secondary-text);
+  margin-left: 5px;
+  cursor: default;
+}
+
+.last-triggered-alert-price {
+  margin: 0;
+  font-size: 12px;
+  height: 18px;
+  color: var(--color-secondary-text);
+  cursor: default;
+}
+
+.crypto-card-btn {
+  border: none;
+  padding: 8px 10px;
+  border-radius: 4px;
+  height: fit-content;
+  box-shadow: 0 2px 5px -2px rgba(0, 0, 0, .5);
+  transition: box-shadow 0.3s;
+}
+
+.crypto-card-btn:hover {
+  box-shadow: none;
+}
+
+.crypto-card-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+@media (max-width: 600px) {
+  .crypto-card-btn {
+    font-size: 12px;
+  }
+}
+
+.target-prices-list {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.target-prices-item {
+  background-color: var(--color-bg-input);
+  padding: 5px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--color-secondary-text);
+  cursor: default;
+}
+
+.remove-target-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background-color: transparent;
+  width: 12px;
+  height: 12px;
+}
+
+.remove-target-btn::before,
+.remove-target-btn::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  background-color: var(--color-text);
+}
+
+.remove-target-btn::before {
+  transform: rotate(45deg);
+}
+
+.remove-target-btn::after {
+  transform: rotate(-45deg);
+}

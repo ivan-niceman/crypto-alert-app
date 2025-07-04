@@ -121,27 +121,35 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # --- Логика для Binance WebSocket ---
 async def binance_websocket_client():
-    streams = [f"{symbol.lower()}usdt@trade" for symbol in MY_FAVORITE_SYMBOLS]
+    streams = [f"{symbol.lower()}usdt@ticker" for symbol in MY_FAVORITE_SYMBOLS]
     binance_ws_url = f"wss://stream.binance.com:9443/stream?streams={'/'.join(streams)}"
-    print(f"Connecting to Binance WebSocket (TRADE): {binance_ws_url}")
+    print(f"Connecting to Binance WebSocket (TICKER): {binance_ws_url}")
     while True:
         try:
             async with websockets.connect(binance_ws_url) as websocket:
-                print(">>> Successfully connected to Binance WebSocket (TRADE).")
+                print(">>> Successfully connected to Binance WebSocket (TICKER).")
                 while True:
-                    message_str = await websocket.recv()
-                    message = json.loads(message_str)
-                    if 'data' in message and 's' in message['data'] and 'p' in message['data']:
+                    # message_str = await websocket.recv()
+                    # message = json.loads(message_str)
+                    message = json.loads(await websocket.recv())
+
+                    if 'data' in message and 's' in message['data'] and 'c' in message['data'] and 'P' in message['data']:
                         data = message['data']
-                        full_symbol, price_str = data['s'], data['p']
+                        # full_symbol, price_str = data['s'], data['p']
+                        full_symbol, price_str, price_change_percent_str = data['s'], data['c'], data['P']
                         base_symbol = full_symbol[:-4] if full_symbol.endswith('USDT') else full_symbol
-                        try:
-                            price = float(price_str)
-                            previous_price = latest_prices.get(base_symbol)
-                            latest_prices[base_symbol] = price
-                            payload = {'symbol': base_symbol, 'price': price, 'previousPrice': previous_price}
-                            await sio.emit('price_update', payload)
-                        except (ValueError, TypeError): continue
+
+                        if base_symbol in latest_prices:
+                            try:
+                                price = float(price_str)
+                                price_change_percent = float(price_change_percent_str)
+                                previous_price = latest_prices.get(base_symbol)
+                                latest_prices[base_symbol] = price
+
+                                if price != previous_price:
+                                    payload = {'symbol': base_symbol, 'price': price, 'previousPrice': previous_price, 'priceChangePercent': price_change_percent}
+                                    await sio.emit('price_update', payload)
+                            except (ValueError, TypeError): continue
         except Exception as e:
             print(f"!!! Error with Binance WebSocket: {e}. Reconnecting in 10 seconds...")
             await asyncio.sleep(10)

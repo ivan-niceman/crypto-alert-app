@@ -1,13 +1,20 @@
 import { useState } from 'react';
-import './PriceAlertForm.css';
 
 export default function PriceAlertForm({ pair, onAddAlert, inputRef }) {
   const [inputValue, setInputValue] = useState('');
 
+  // Обработчик изменения значения в поле ввода
+  const handleChange = (e) => {
+    // Ограничиваем длину строки 10 символами
+    if (e.target.value.length <= 10) {
+      setInputValue(e.target.value);
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (inputValue) {
-      onAddAlert(pair, parseFloat(inputValue));
+      onAddAlert(pair, inputValue);
       setInputValue('');
     }
   };
@@ -17,13 +24,15 @@ export default function PriceAlertForm({ pair, onAddAlert, inputRef }) {
       <input
         type="number"
         value={inputValue}
-        onChange={(e) => setInputValue(e.target.value)}
-        placeholder="Введите целевую цену"
+        onChange={handleChange}
+        placeholder="Целевая цена"
         step="any"
         ref={inputRef}
         required
       />
-      <button type="submit">Добавить</button>
+      <button className="alert-form-btn" type="submit">
+        Добавить
+      </button>
     </form>
   );
 }
