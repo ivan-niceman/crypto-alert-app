@@ -3,7 +3,6 @@ import PriceAlertForm from '../PriceAlertForm/PriceAlertForm';
 
 export default function CryptoCard({
   name,
-  // symbol,
   pair,
   price,
   previousPrice,

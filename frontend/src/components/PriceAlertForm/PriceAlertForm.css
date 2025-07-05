@@ -20,7 +20,6 @@
   transition: box-shadow 0.3s;
 }
 
-
 .alert-form-btn:hover {
   box-shadow: none;
 }

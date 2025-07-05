@@ -1,4 +1,3 @@
-// src/App.jsx
 import { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
 import CryptoCard from '../CryptoCard/CryptoCard.jsx';
@@ -132,17 +131,11 @@ export default function App() {
     });
   }, []);
 
-  // const playNotificationSound = useCallback(() => {
-  //   audioRef.current
-  //     ?.play()
-  //     .catch((e) => console.error('Audio playback error:', e));
-  // }, []);
-
   // Функция для воспроизведения звука уведомления
   const playNotificationSound = useCallback(() => {
     if (audioRef.current) {
-      audioRef.current.muted = false; // Включаем звук
-      audioRef.current.currentTime = 0; // Перематываем на начало
+      audioRef.current.muted = false;
+      audioRef.current.currentTime = 0;
       audioRef.current
         .play()
         .catch((e) => console.error('Audio playback error:', e));
@@ -150,22 +143,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // audioRef.current = new Audio(notificationSound);
-    // audioRef.current.volume = 0.3;
-    // const unlockAudio = () => {
-    //   if (!audioRef.current) return;
-    //   audioRef.current
-    //     .play()
-    //     .then(() => {
-    //       audioRef.current.pause();
-    //       audioRef.current.currentTime = 0;
-    //       setIsAudioUnlocked(true);
-    //       document.removeEventListener('click', unlockAudio);
-    //     })
-    //     .catch(() => {});
-    // };
-
-    // Создаем аудио элемент один раз
     if (!audioRef.current) {
       audioRef.current = new Audio(notificationSound);
       audioRef.current.volume = 0.3;

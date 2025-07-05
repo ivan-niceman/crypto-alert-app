@@ -5,7 +5,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 SELECTING_COIN, TYPING_PRICE = range(2)
 
 # --- Обработчики команд и сообщений ---
-
 def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     update.message.reply_html(

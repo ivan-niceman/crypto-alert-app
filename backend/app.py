@@ -129,13 +129,10 @@ async def binance_websocket_client():
             async with websockets.connect(binance_ws_url) as websocket:
                 print(">>> Successfully connected to Binance WebSocket (TICKER).")
                 while True:
-                    # message_str = await websocket.recv()
-                    # message = json.loads(message_str)
                     message = json.loads(await websocket.recv())
 
                     if 'data' in message and 's' in message['data'] and 'c' in message['data'] and 'P' in message['data']:
                         data = message['data']
-                        # full_symbol, price_str = data['s'], data['p']
                         full_symbol, price_str, price_change_percent_str = data['s'], data['c'], data['P']
                         base_symbol = full_symbol[:-4] if full_symbol.endswith('USDT') else full_symbol
 

@@ -4,10 +4,6 @@
 @import url(./components/PriceAlertForm/PriceAlertForm.css);
 
 :root {
-  /* color-scheme: light dark; */
-  /* color: rgba(255, 255, 255, 0.87); */
-  /* background-color: #242424; */
-
   --color-bg-page: #242424;
   --color-bg-card: #2e2e2e;
   --color-bg-btn: #2a3c4d;
@@ -61,14 +57,3 @@ input {
   background-color: var(--color-bg-input);
   color: var(--color-text);
 }
-
-/* @media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-}
-
-input:focus {
-  outline: none;
-} */
