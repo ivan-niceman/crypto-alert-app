@@ -26,6 +26,21 @@
   transition: background-color 1s ease;
 }
 
+.add-crypto-btn {
+  display: flex;
+  justify-self: center;
+  margin-top: 20px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  height: fit-content;
+  box-shadow: 0 2px 5px -2px rgba(0, 0, 0, .5);
+  transition: box-shadow 0.3s;
+}
+
+.add-crypto-btn:hover {
+  box-shadow: none;
+}
+
 .crypto-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

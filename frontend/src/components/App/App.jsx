@@ -1,10 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import io from 'socket.io-client';
+import { useState, useEffect, useRef, useCallback, createRef } from 'react';
+import { Toaster, toast } from 'react-hot-toast';
+import { CSSTransition, TransitionGroup } from 'react-transition-group';
+import { socket } from '../../socket.js';
+import './App.css';
 import CryptoCard from '../CryptoCard/CryptoCard.jsx';
+import AddCryptoForm from '../AddCryptoForm/AddCryptoForm.jsx';
+import SearchBar from '../SearchBar/SearchBar.jsx';
 import { sendMessage as sendTelegramMessageViaBackend } from '../../services/telegramService.js';
 import notificationSound from '../../assets/notification.mp3';
 
-const MY_FAVORITE_SYMBOLS = [
+const DEFAULT_SYMBOLS = [
   'BTC',
   'ETH',
   'ADA',
@@ -19,17 +24,19 @@ const MY_FAVORITE_SYMBOLS = [
 ];
 const ALERTS_STORAGE_KEY = 'cryptoAlerts';
 const LAST_TRIGGERED_PRICES_STORAGE_KEY = 'lastTriggeredCryptoPrices';
-const SOCKET_SERVER_URL = 'http://localhost:5001';
+const CRYPTO_SYMBOLS_STORAGE_KEY = 'cryptoSymbols';
 
-const MAX_ALERTS_PER_PAIR = 10;
+const MAX_ALERTS_PER_PAIR = 4; // Максимальное количество алертов на одну пару
 
-// --- ГЛОБАЛЬНЫЙ СОКЕТ ---
-const socket = io(SOCKET_SERVER_URL, {
-  transports: ['websocket'],
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 3000,
-});
+const loadInitialSymbols = () => {
+  try {
+    const savedSymbols = localStorage.getItem(CRYPTO_SYMBOLS_STORAGE_KEY);
+    return savedSymbols ? JSON.parse(savedSymbols) : DEFAULT_SYMBOLS;
+  } catch (e) {
+    console.error('Error parsing symbols from localStorage:', e);
+    return DEFAULT_SYMBOLS;
+  }
+};
 
 const loadInitialAlerts = () => {
   try {
@@ -65,55 +72,55 @@ const loadInitialLastTriggeredPrices = () => {
   }
 };
 
+const createCryptoObject = (symbol, name = null) => ({
+  id: symbol,
+  name: name || symbol,
+  symbol: symbol,
+  price: null,
+  previousPrice: null,
+  priceChangePercent: 0,
+  pair: `${symbol}/USDT`,
+  nodeRef: createRef(null),
+});
+
 export default function App() {
   const [cryptos, setCryptos] = useState(() =>
-    MY_FAVORITE_SYMBOLS.map((symbol) => ({
-      id: symbol,
-      name: symbol,
-      symbol: symbol,
-      price: null,
-      previousPrice: null,
-      priceChangePercent: 0,
-      pair: `${symbol}/USDT`,
-    })),
+    loadInitialSymbols().map((symbol) => createCryptoObject(symbol)),
   );
+
   const [alerts, setAlerts] = useState(loadInitialAlerts);
   const [lastTriggeredPrices, setLastTriggeredPrices] = useState(
     loadInitialLastTriggeredPrices,
   );
   const [isConnected, setIsConnected] = useState(socket.connected);
+  const [isAddFormVisible, setIsAddFormVisible] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const audioRef = useRef(null);
   const triggeredAlertsRef = useRef({});
-
-  // Функция для разблокировки аудио контекста
-  const unlockAudio = useCallback(() => {
-    if (audioRef.current && audioRef.current.paused) {
-      // Пытаемся воспроизвести звук без звука, чтобы разблокировать контекст
-      audioRef.current.muted = true;
-      audioRef.current.play().catch(() => {});
-      // Удаляем слушатель после первой попытки
-      document.removeEventListener('click', unlockAudio);
-    }
-  }, []);
+  const isInitialMount = useRef(true);
+  const addFormNodeRef = useRef(null);
 
   // Удаляем проверку на количество алертов, оставляем только проверку на дубликаты
   const addAlert = useCallback((pair, targetPrice) => {
-    const price = parseFloat(targetPrice);
-    if (isNaN(price) || price <= 0) {
+    const price = Number(targetPrice);
+    if (!(price > 0)) {
       console.error('Invalid price format');
       return;
     }
     setAlerts((prev) => {
-      const currentAlerts = prev[pair] || [];
-      // Оставляем только проверку на дубликаты
-      if (currentAlerts.some((a) => a.price === price)) {
+      const currentAlerts = prev[pair] ?? [];
+      if (currentAlerts.find(({ price: p }) => p === price)) return prev;
+      if (currentAlerts.length >= MAX_ALERTS_PER_PAIR) {
+        console.warn(`Alert limit for ${pair} reached.`);
         return prev;
       }
-      const newAlerts = [...currentAlerts, { price }].sort(
-        (a, b) => a.price - b.price,
-      );
-      return { ...prev, [pair]: newAlerts };
+
+      return {
+        ...prev,
+        [pair]: [...currentAlerts, { price }].sort((a, b) => a.price - b.price),
+      };
     });
   }, []);
 
@@ -143,10 +150,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio(notificationSound);
-      audioRef.current.volume = 0.3;
-    }
+    audioRef.current = new Audio(notificationSound);
+    audioRef.current.volume = 0.3;
+
+    const unlockAudio = () => {
+      if (audioRef.current && audioRef.current.muted !== false) {
+        audioRef.current.muted = false;
+        audioRef.current
+          .play()
+          .then(() => {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          })
+          .catch(() => {});
+      }
+      document.removeEventListener('click', unlockAudio);
+    };
     document.addEventListener('click', unlockAudio);
 
     const onConnect = () => setIsConnected(true);
@@ -159,13 +178,22 @@ export default function App() {
             const newInfo = data.cryptos.find(
               (c) => c.symbol === existingCrypto.symbol,
             );
-            return newInfo
-              ? {
-                  ...existingCrypto,
-                  price: newInfo.price,
-                  previousPrice: newInfo.price,
-                }
-              : existingCrypto;
+            // return newInfo
+            //   ? {
+            //       ...existingCrypto,
+            //       price: newInfo.price,
+            //       previousPrice: newInfo.price,
+            //     }
+            //   : existingCrypto;
+            if (newInfo) {
+              return {
+                ...existingCrypto,
+                price: newInfo.price,
+                previousPrice: newInfo.price,
+                name: newInfo.name,
+              };
+            }
+            return existingCrypto;
           }),
         );
       }
@@ -205,7 +233,78 @@ export default function App() {
       socket.off('price_update', onPriceUpdate);
       socket.off('add_alert_from_bot', onAddAlertFromBot);
     };
-  }, [addAlert, unlockAudio]);
+  }, [addAlert]);
+
+  const handleRemoveCrypto = useCallback((symbolToRemove) => {
+    setCryptos((prevCryptos) =>
+      prevCryptos.filter((crypto) => crypto.symbol !== symbolToRemove),
+    );
+    // Также очистим связанные с этой монетой алерты
+    setAlerts((prevAlerts) => {
+      const { [`${symbolToRemove}/USDT`]: _, ...rest } = prevAlerts;
+      return rest;
+    });
+  }, []);
+
+  const handleAddCrypto = useCallback(
+    async (symbol) => {
+      const newSymbol = symbol.toUpperCase().trim();
+
+      if (!newSymbol) return;
+
+      if (cryptos.find((c) => c.symbol === newSymbol)) {
+        toast.success(`${newSymbol} уже есть в списке.`);
+        return;
+      }
+
+      setIsAdding(true); // Включаем индикатор загрузки
+
+      try {
+        const response = await fetch(
+          `http://localhost:5001/api/validate_symbol?symbol=${newSymbol}`,
+        );
+        const data = await response.json();
+
+        if (response.ok && data.valid) {
+          // Символ валиден, добавляем его
+          const newCrypto = createCryptoObject(newSymbol, data.name);
+          setCryptos((prev) => [...prev, newCrypto]);
+          setIsAddFormVisible(false); // Закрываем форму
+          toast.success(`Монета ${data.name} успешно добавлена!`);
+        } else {
+          // Символ невалиден, показываем ошибку
+          toast.error(
+            `Монета "${newSymbol}" не найдена на Binance или произошла ошибка.\n(${
+              data.message || 'Попробуйте другой тикер'
+            })`,
+          );
+        }
+      } catch (error) {
+        console.error('Validation request failed:', error);
+        toast.error(
+          'Не удалось проверить монету. Проверьте соединение с сервером.',
+        );
+      } finally {
+        setIsAdding(false); // Выключаем индикатор загрузки в любом случае
+      }
+    },
+    [cryptos],
+  );
+
+  useEffect(() => {
+    const symbols = cryptos.map((c) => c.symbol);
+    localStorage.setItem(CRYPTO_SYMBOLS_STORAGE_KEY, JSON.stringify(symbols));
+  }, [cryptos]);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    const symbols = cryptos.map((c) => c.symbol);
+    socket.emit('resubscribe', { symbols });
+  }, [cryptos]);
 
   useEffect(() => {
     localStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(alerts));
@@ -270,37 +369,92 @@ export default function App() {
 
   const hasReceivedData = cryptos.some((c) => c.price !== null);
 
+  const filteredCryptos = cryptos.filter(
+    (crypto) =>
+      crypto.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      crypto.name.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
+
   return (
     <div className="App">
-      <h1 className="title">
-        Курсы криптовалют (Binance)
-        <span
-          className="connection-indicator"
-          style={{ backgroundColor: isConnected ? '#27ae60' : '#ff2d2d' }}
-        ></span>
-      </h1>
-
-      <ul
-        className="crypto-list"
-        style={{ opacity: hasReceivedData ? '1' : '.5' }}
-      >
-        {cryptos.map((crypto) => (
-          <CryptoCard
-            key={crypto.id}
-            name={crypto.name}
-            symbol={crypto.symbol}
-            pair={crypto.pair}
-            price={crypto.price}
-            previousPrice={crypto.previousPrice}
-            priceChangePercent={crypto.priceChangePercent}
-            targetPrices={alerts[crypto.pair] || []}
-            alertsLimit={MAX_ALERTS_PER_PAIR}
-            onAddAlert={addAlert}
-            onRemoveAlert={removeAlert}
-            lastTriggeredPrice={lastTriggeredPrices[crypto.pair]}
+      <header>
+        <h1 className="title">
+          Курсы криптовалют (Binance)
+          <span
+            className="connection-indicator"
+            style={{ backgroundColor: isConnected ? '#27ae60' : '#ff2d2d' }}
           />
-        ))}
-      </ul>
+        </h1>
+        <button
+          className="add-crypto-btn"
+          onClick={() => setIsAddFormVisible(true)}
+          style={{ opacity: hasReceivedData ? '1' : '.5' }}
+        >
+          Добавить монету
+        </button>
+        <SearchBar searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
+      </header>
+
+      <main>
+        <TransitionGroup
+          component="ul"
+          className="crypto-list"
+          style={{ opacity: hasReceivedData ? '1' : '.5' }}
+        >
+          {filteredCryptos.map((crypto) => (
+            <CSSTransition
+              key={crypto.id}
+              nodeRef={crypto.nodeRef}
+              timeout={100}
+              classNames="item"
+              appear
+            >
+              <CryptoCard
+                key={crypto.id}
+                ref={crypto.nodeRef}
+                name={crypto.name}
+                symbol={crypto.symbol}
+                pair={crypto.pair}
+                price={crypto.price}
+                previousPrice={crypto.previousPrice}
+                priceChangePercent={crypto.priceChangePercent}
+                targetPrices={alerts[crypto.pair] || []}
+                alertsLimit={MAX_ALERTS_PER_PAIR}
+                onAddAlert={addAlert}
+                onRemoveAlert={removeAlert}
+                lastTriggeredPrice={lastTriggeredPrices[crypto.pair]}
+                onRemoveCard={handleRemoveCrypto}
+              />
+            </CSSTransition>
+          ))}
+        </TransitionGroup>
+      </main>
+      <CSSTransition
+        in={isAddFormVisible}
+        nodeRef={addFormNodeRef}
+        timeout={200}
+        classNames="item"
+        unmountOnExit
+      >
+        <AddCryptoForm
+          ref={addFormNodeRef}
+          onAdd={handleAddCrypto}
+          onCancel={() => setIsAddFormVisible(false)}
+          isAdding={isAdding}
+        />
+      </CSSTransition>
+      <Toaster
+        position="top-center"
+        reverseOrder={false}
+        toastOptions={{
+          duration: 5000,
+          style: {
+            borderRadius: '8px',
+            background: '#2e2e2e',
+            color: '#fff',
+          },
+        }}
+      />
     </div>
   );
 }

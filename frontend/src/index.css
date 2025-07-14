@@ -2,6 +2,8 @@
 @import url(./components/App/App.css);
 @import url(./components/CryptoCard/CryptoCard.css);
 @import url(./components/PriceAlertForm/PriceAlertForm.css);
+@import url(./components/AddCryptoForm/AddCryptoForm.css);
+@import url(./components/SearchBar/SearchBar.css);
 
 :root {
   --color-bg-page: #242424;
@@ -56,4 +58,28 @@ button:focus-visible {
 input {
   background-color: var(--color-bg-input);
   color: var(--color-text);
+}
+
+/* анимация */
+
+.item-enter {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.item-enter-active {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity .2s, transform .2s;
+}
+
+.item-exit {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.item-exit-active {
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity .2s, transform .2s;
 }

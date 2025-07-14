@@ -1,20 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-export default function PriceAlertForm({ pair, onAddAlert, inputRef }) {
-  const [inputValue, setInputValue] = useState('');
+export default function PriceAlertForm({
+  pair,
+  onAddAlert,
+  inputRef,
+  defaultValue = '',
+}) {
+  const [inputValue, setInputValue] = useState(defaultValue);
 
-  // Обработчик изменения значения в поле ввода
+  useEffect(() => {
+    setInputValue(defaultValue);
+  }, [defaultValue]);
+
   const handleChange = (e) => {
-    // Ограничиваем длину строки 10 символами
-    if (e.target.value.length <= 10) {
-      setInputValue(e.target.value);
+    let val = e.target.value.replace(',', '.');
+    // Проверяем, что в строке не больше одной точки
+    if ((val.match(/\./g) || []).length > 1) {
+      // Если пользователь пытается ввести вторую точку, игнорируем ввод
+      return;
+    }
+    // Используем регулярное выражение для разрешения только цифр и точки
+    if (/^\d*\.?\d{0,5}$/.test(val) && val.length <= 15) {
+      setInputValue(val);
     }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (inputValue) {
-      onAddAlert(pair, inputValue);
+    const price = parseFloat(inputValue);
+    if (!isNaN(price) && price > 0) {
+      onAddAlert(pair, price);
       setInputValue('');
     }
   };
@@ -22,15 +37,14 @@ export default function PriceAlertForm({ pair, onAddAlert, inputRef }) {
   return (
     <form onSubmit={handleSubmit} className="alert-form">
       <input
-        type="number"
+        type="text"
         value={inputValue}
         onChange={handleChange}
-        placeholder="Целевая цена"
-        step="any"
+        placeholder="Введите цену"
+        inputMode="decimal"
         ref={inputRef}
-        required
       />
-      <button className="alert-form-btn" type="submit">
+      <button className="alert-form-btn" type="submit" disabled={!inputValue}>
         Добавить
       </button>
     </form>

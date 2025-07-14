@@ -1,248 +1,266 @@
-# backend/app.py
-
 import logging
-import os
-import json
 import asyncio
-import websockets
 import requests
-from dotenv import load_dotenv
 
+import aiohttp
 from aiohttp import web
 import socketio
+import aiohttp_cors
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from config import (
+    HOST, PORT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, CORS_ALLOWED_ORIGINS
+)
+
+from binance_client import BinanceWsClient
+from telegram_bot import setup_telegram_bot
 
 # --- Настройка логирования ---
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('aiohttp.access').setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
-
-load_dotenv()
 
 # --- Конфигурация ---
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ADMIN_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') 
+INITIAL_SYMBOLS = ['BTC', 'ETH', 'ADA', 'LINK', 'LTC', 'SOL', 'XRP', 'DOT', 'DOGE', 'TON', 'TRUMP']
 
-MY_FAVORITE_SYMBOLS = [
-    'BTC', 'ETH', 'ADA', 'LINK', 'LTC', 'SOL', 'XRP', 'DOT', 'DOGE', 'TON', 'TRUMP']
-latest_prices = {}
-
-# --- Инициализация Socket.IO для aiohttp ---
-sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins='*')
+# --- Инициализация ---
+sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins=CORS_ALLOWED_ORIGINS)
 app = web.Application()
 sio.attach(app)
 
-# --- Состояния для диалога с ботом ---
-SELECTING_COIN, TYPING_PRICE = range(2)
+latest_prices = {}
+current_symbols = list(INITIAL_SYMBOLS)
+background_tasks = {}
+valid_usdt_symbols = set()
+coin_names = {}
 
-
-# --- Функции-помощники и для бота ---
-def pre_fetch_initial_prices():
-    """Делает один HTTP-запрос к Binance для получения начальных цен."""
-    print("Pre-fetching initial prices from Binance...")
+# --- Функции-помощники ---
+def update_app_data_from_binance(symbols_to_fetch):
+    """
+    Запрашивает exchangeInfo для получения всех валидных символов
+    и ticker/price для предзагрузки цен для начального списка.
+    """
+    global latest_prices, valid_usdt_symbols, coin_names
+    print("Fetching all valid symbols and initial prices from Binance...")
+    
+    # Получаем все валидные символы
     try:
-        response = requests.get('https://api.binance.com/api/v3/ticker/price', timeout=10)
+        info_response = requests.get('https://api.binance.com/api/v3/exchangeInfo', timeout=10)
+        info_response.raise_for_status()
+        info_data = info_response.json()
+        
+        # Фильтруем символы: только спот, торгуются к USDT и статус TRADING
+        current_valid_symbols = {
+            item['baseAsset'] 
+            for item in info_data['symbols']
+            if item.get('quoteAsset') == 'USDT' and item.get('status') == 'TRADING'
+        }
+        valid_usdt_symbols = current_valid_symbols
+        print(f"Loaded {len(valid_usdt_symbols)} actively trading USDT pairs.")
+
+    except Exception as e:
+        print(f"!!! CRITICAL: Could not fetch exchange info from Binance: {e}")
+        # В случае ошибки оставляем кэш пустым, валидация будет невозможна
+        valid_usdt_symbols = set()
+
+    # Получаем все активы и их полные имена
+    try:
+        response = requests.get('https://www.binance.com/bapi/asset/v2/public/asset/asset/get-all-asset', timeout=10)
         response.raise_for_status()
-        binance_data = response.json()
-        if isinstance(binance_data, list):
-            for item in binance_data:
-                if 'symbol' in item and item['symbol'].endswith('USDT'):
-                    base_symbol = item['symbol'][:-4]
-                    if base_symbol in MY_FAVORITE_SYMBOLS:
-                        try:
-                            latest_prices[base_symbol] = float(item['price'])
-                        except (ValueError, TypeError):
-                            continue
-            print(f"Pre-fetched {len(latest_prices)} prices successfully.")
+        assets_data = response.json()
+        
+        # Создаем словарь { "BTC": "Bitcoin", "ETH": "Ethereum", ... }
+        # Мы берем assetName, так как он более чистый
+        temp_coin_names = {
+            asset['assetCode']: asset['assetName']
+            for asset in assets_data.get('data', [])
+        }
+        coin_names = temp_coin_names
+        print(f"Loaded {len(coin_names)} full asset names.")
+    except Exception as e:
+        print(f"!!! Could not fetch asset names: {e}")
+        coin_names = {}
+
+    # Предзагружаем цены для нашего стартового списка
+    try:
+        prices_response = requests.get('https://api.binance.com/api/v3/ticker/price', timeout=10)
+        prices_response.raise_for_status()
+        prices_data = prices_response.json()
+        
+        fetched_prices = {
+            item['symbol'][:-4]: float(item['price'])
+            for item in prices_data
+            if item['symbol'].endswith('USDT') and item['symbol'][:-4] in symbols_to_fetch
+        }
+        latest_prices = fetched_prices
+        print(f"Pre-fetched {len(latest_prices)} initial prices.")
     except Exception as e:
         print(f"!!! Could not pre-fetch initial prices: {e}")
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    await update.message.reply_html(
-        f"Привет, {user.mention_html()}! Я бот для отслеживания цен.\n\n"
-        f"Используй меню команд (кнопка слева), чтобы установить уведомление!"
-    )
-
-async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    keyboard = []
-    row = []
-    symbol_list = context.bot_data.get('symbol_list', [])
-    for symbol in symbol_list:
-        row.append(InlineKeyboardButton(symbol, callback_data=f"set_alert_coin_{symbol}"))
-        if len(row) == 3:
-            keyboard.append(row)
-            row = []
-    if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("Отмена", callback_data="cancel_dialog")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Выберите криптовалюту для установки уведомления:', reply_markup=reply_markup)
-    return SELECTING_COIN
-
-async def select_coin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    if query.data == 'cancel_dialog':
-        await query.edit_message_text(text='Действие отменено.')
-        return ConversationHandler.END
-    selected_coin = query.data.split('_')[-1]
-    context.user_data['selected_coin'] = selected_coin
-    await query.edit_message_text(text=f"Выбрана монета: {selected_coin}\n\nТеперь введите целевую цену в USDT (или /cancel):")
-    return TYPING_PRICE
-
-async def receive_price_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_input = update.message.text
-    selected_coin = context.user_data.get('selected_coin')
-    if not selected_coin:
-        await update.message.reply_text("Что-то пошло не так. Начните снова с /alert.")
-        return ConversationHandler.END
-    try:
-        target_price = float(user_input.replace(',', '.'))
-        if target_price <= 0: raise ValueError("Price must be positive")
-        pair = f"{selected_coin}/USDT"
-        await sio.emit('add_alert_from_bot', {'pair': pair, 'price': target_price})
-        await update.message.reply_text(f"✅ Установлено уведомление для {pair} на цену {target_price} USDT.")
-        context.user_data.clear()
-        return ConversationHandler.END
-    except ValueError:
-        await update.message.reply_text("Неверный формат. Введите цену в виде числа (или /cancel).")
-        return TYPING_PRICE
-
-async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text('Действие отменено.')
-    context.user_data.clear()
-    return ConversationHandler.END
-
-# --- Логика для Binance WebSocket ---
-async def binance_websocket_client():
-    streams = [f"{symbol.lower()}usdt@ticker" for symbol in MY_FAVORITE_SYMBOLS]
-    binance_ws_url = f"wss://stream.binance.com:9443/stream?streams={'/'.join(streams)}"
-    print(f"Connecting to Binance WebSocket (TICKER): {binance_ws_url}")
-    while True:
-        try:
-            async with websockets.connect(binance_ws_url) as websocket:
-                print(">>> Successfully connected to Binance WebSocket (TICKER).")
-                while True:
-                    message = json.loads(await websocket.recv())
-
-                    if 'data' in message and 's' in message['data'] and 'c' in message['data'] and 'P' in message['data']:
-                        data = message['data']
-                        full_symbol, price_str, price_change_percent_str = data['s'], data['c'], data['P']
-                        base_symbol = full_symbol[:-4] if full_symbol.endswith('USDT') else full_symbol
-
-                        if base_symbol in latest_prices:
-                            try:
-                                price = float(price_str)
-                                price_change_percent = float(price_change_percent_str)
-                                previous_price = latest_prices.get(base_symbol)
-                                latest_prices[base_symbol] = price
-
-                                if price != previous_price:
-                                    payload = {'symbol': base_symbol, 'price': price, 'previousPrice': previous_price, 'priceChangePercent': price_change_percent}
-                                    await sio.emit('price_update', payload)
-                            except (ValueError, TypeError): continue
-        except Exception as e:
-            print(f"!!! Error with Binance WebSocket: {e}. Reconnecting in 10 seconds...")
-            await asyncio.sleep(10)
-
-# --- ГЛАВНАЯ АСИНХРОННАЯ ЗАДАЧА ---
-async def main_async_tasks(app_instance):
-    if not TELEGRAM_BOT_TOKEN:
-        print("!!! TELEGRAM_BOT_TOKEN is not set. Bot will not work. !!!")
-        # Если нет токена, запускаем только клиент Binance
-        await binance_websocket_client()
-        return
-
-    ptb_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    ptb_app.bot_data['symbol_list'] = MY_FAVORITE_SYMBOLS
-    ptb_app.bot_data['socketio_server'] = sio
-    
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('alert', alert_command)],
-        states={
-            SELECTING_COIN: [CallbackQueryHandler(select_coin_callback, pattern='^set_alert_coin_')],
-            TYPING_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_price_message)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel_command)],
-        per_message=False
-    )
-    ptb_app.add_handler(CommandHandler("start", start_command))
-    ptb_app.add_handler(conv_handler)
-    
+# --- Асинхронные задачи ---
+async def run_telegram_bot_task(app_instance):
+    if not TELEGRAM_BOT_TOKEN: return
+    ptb_app = setup_telegram_bot(TELEGRAM_BOT_TOKEN, lambda: current_symbols, sio)
     app_instance['ptb_app'] = ptb_app
-
     async with ptb_app:
         await ptb_app.initialize()
-        
-        commands = [
-            BotCommand("start", "🚀 Перезапустить бота"),
-            BotCommand("alert", "🔔 Установить новое уведомление"),
-            BotCommand("cancel", "❌ Отменить текущее действие"),
-        ]
-        await ptb_app.bot.set_my_commands(commands)
-        print("Bot commands menu has been set.")
-        
         await ptb_app.start()
-        if ADMIN_CHAT_ID:
-            await ptb_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text="Добро пожаловать в бот CryptoAlert!")
-            print(f"Startup message sent to ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-        
         await ptb_app.updater.start_polling()
-        print("Telegram bot has been initialized and is running in polling mode.")
-        
-        await binance_websocket_client()
+        print("Telegram bot is running.")
+        if TELEGRAM_CHAT_ID:
+            await ptb_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="Привет! Добро пожаловать в бот CryptoAlert.")
+        await ptb_app.updater.running
+
+async def main_background_tasks(app_instance):
+    binance_client = BinanceWsClient(get_symbols_func=lambda: current_symbols, sio_server=sio, latest_prices_ref=latest_prices)
+    
+    binance_task = asyncio.create_task(binance_client.run())
+    background_tasks['binance'] = binance_task
+    
+    tasks_to_run = [binance_task]
+
+    if TELEGRAM_BOT_TOKEN:
+        telegram_task = asyncio.create_task(run_telegram_bot_task(app_instance))
+        background_tasks['telegram'] = telegram_task
+        tasks_to_run.append(telegram_task)
+    
+    await asyncio.gather(*tasks_to_run)
+
+# HTTP ЭНДПОИНТ ДЛЯ ВАЛИДАЦИИ
+async def validate_symbol(request):
+    """
+    Проверяет, существует ли символ в нашем кэше валидных символов.
+    """
+    symbol = request.query.get('symbol', '').upper()
+    if not symbol:
+        return web.json_response({'valid': False, 'message': 'Symbol is required'}, status=400)
+    
+    if symbol in valid_usdt_symbols:
+        full_name = coin_names.get(symbol, symbol)
+        return web.json_response({'valid': True, 'name': full_name})
+    else:
+        return web.json_response({'valid': False, 'message': f'Symbol {symbol} not found.'}, status=404)
 
 # --- Socket.IO события ---
 @sio.event
 async def connect(sid, environ, auth=None):
     print(f'>>> Frontend Client connected: {sid}')
     if latest_prices:
-        initial_data = [{'symbol': symbol, 'price': price, 'previousPrice': None} for symbol, price in latest_prices.items()]
-        await sio.emit('initial_prices', {'cryptos': initial_data}, to=sid)
-        print(f"Sent initial_prices to {sid}")
+        prices_to_send = {s: p for s, p in latest_prices.items() if s in current_symbols}
+        if prices_to_send:
+            initial_data = [
+                {
+                    'symbol': s,
+                    'price': p,
+                    'name': coin_names.get(s, s) # Берем имя из кэша
+                } for s, p in prices_to_send.items()
+            ]
+            # await sio.emit('initial_prices', {'cryptos': [{'symbol': s, 'price': p} for s, p in prices_to_send.items()]}, to=sid)
+            await sio.emit('initial_prices', {'cryptos': initial_data}, to=sid)
+            print(f"Sent initial_prices for {len(prices_to_send)} symbols to {sid}")
 
 @sio.event
 async def disconnect(sid):
     print(f'>>> Frontend Client disconnected: {sid}')
 
 @sio.event
+async def resubscribe(sid, data):
+    global current_symbols
+
+    new_symbols = data.get('symbols')
+    if new_symbols is None or not isinstance(new_symbols, list):
+        return
+
+    # Не перезапускаем, если список не изменился
+    if set(new_symbols) == set(current_symbols):
+        return
+
+    print(f"Received request to resubscribe with new symbols: {new_symbols}")
+    current_symbols = new_symbols
+    
+    old_task = background_tasks.get('binance')
+    if old_task and not old_task.done():
+        old_task.cancel()
+        print("Cancelled old Binance WS task.")
+
+    def pre_fetch_prices(symbols_to_fetch):
+        global latest_prices
+        print(f"Pre-fetching prices for: {symbols_to_fetch}")
+        try:
+            prices_response = requests.get('https://api.binance.com/api/v3/ticker/price', timeout=10)
+            prices_response.raise_for_status()
+            prices_data = prices_response.json()
+            
+            # Обновляем цены только для тех символов, что есть в списке
+            for item in prices_data:
+                if item['symbol'].endswith('USDT'):
+                    base_symbol = item['symbol'][:-4]
+                    if base_symbol in symbols_to_fetch:
+                        latest_prices[base_symbol] = float(item['price'])
+            print(f"Updated/pre-fetched prices for {len(symbols_to_fetch)} symbols.")
+        except Exception as e:
+            print(f"!!! Could not pre-fetch prices: {e}")
+
+    pre_fetch_prices(current_symbols)
+
+    new_client = BinanceWsClient(get_symbols_func=lambda: current_symbols, sio_server=sio, latest_prices_ref=latest_prices)
+    new_task = asyncio.create_task(new_client.run())
+    background_tasks['binance'] = new_task
+    print("New Binance WS task started.")
+
+@sio.event
 async def send_telegram_alert(sid, data):
     message = data.get('message')
-    if not message: return
+    if not message: 
+        print("Backend: Received 'send_telegram_alert' event WITHOUT a message.")
+        return
+    
+    print(f"Backend: Received alert request. Message: '{message[:50]}...'")
     
     ptb_app = app.get('ptb_app')
-    if ptb_app and ADMIN_CHAT_ID:
+    if ptb_app and TELEGRAM_CHAT_ID:
         try:
-            asyncio.create_task(ptb_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message))
-            print(f"Alert scheduled to be sent to ADMIN_CHAT_ID: '{message[:40]}...'")
+            # Создаем задачу для отправки, чтобы не блокировать обработчик
+            asyncio.create_task(ptb_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message))
+            print("Backend: Alert message scheduled to be sent to Telegram.")
         except Exception as e:
-            print(f"Failed to send alert to ADMIN_CHAT_ID: {e}")
+            print(f"!!! BACKEND FAILED TO SEND TELEGRAM MESSAGE: {e}")
     else:
-        print("Telegram bot not ready or ADMIN_CHAT_ID not set, can't send alert.")
+        if not ptb_app:
+            print("!!! ERROR: Telegram bot instance ('ptb_app') not found in app context.")
+        if not TELEGRAM_CHAT_ID:
+            print("!!! ERROR: TELEGRAM_CHAT_ID is not set in .env file.")
 
 # --- Запуск приложения ---
 async def start_background_tasks(app_instance):
-    app_instance['main_task'] = asyncio.create_task(main_async_tasks(app_instance))
+    app_instance['aiohttp_session'] = aiohttp.ClientSession()
+    app_instance['main_task'] = asyncio.create_task(main_background_tasks(app_instance))
 
 async def cleanup_background_tasks(app_instance):
     print("Stopping background tasks...")
-    app_instance['main_task'].cancel()
-    try:
-        await app_instance['main_task']
-    except asyncio.CancelledError:
-        print("Background tasks were successfully cancelled.")
+    await app_instance['aiohttp_session'].close()
+
+    for task in background_tasks.values():
+        if task and not task.done():
+            task.cancel()
+    if 'main_task' in app_instance:
+        app_instance['main_task'].cancel()
+        try: await app_instance['main_task']
+        except asyncio.CancelledError: pass
+    print("Background tasks were successfully cancelled.")
 
 if __name__ == '__main__':
-    pre_fetch_initial_prices()
-    
+    update_app_data_from_binance(INITIAL_SYMBOLS)
+    cors = aiohttp_cors.setup(app, defaults={
+        CORS_ALLOWED_ORIGINS: aiohttp_cors.ResourceOptions(
+            allow_credentials=True,
+            expose_headers="*",
+            allow_headers="*",
+            allow_methods="*",
+        )
+    })
+    resource = cors.add(app.router.add_resource("/api/validate_symbol"))
+    cors.add(resource.add_route("GET", validate_symbol))
     app.on_startup.append(start_background_tasks)
     app.on_cleanup.append(cleanup_background_tasks)
-    
-    print("Starting aiohttp server on http://localhost:5001")
-    web.run_app(app, host='0.0.0.0', port=5001)
+    print(f"Starting aiohttp server on http://{HOST}:{PORT}")
+    web.run_app(app, host=HOST, port=PORT)
