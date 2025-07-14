@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 import requests
 
@@ -21,6 +22,8 @@ logging.getLogger('aiohttp.access').setLevel(logging.WARNING)
 
 # --- Конфигурация ---
 INITIAL_SYMBOLS = ['BTC', 'ETH', 'ADA', 'LINK', 'LTC', 'SOL', 'XRP', 'DOT', 'DOGE', 'TON', 'TRUMP']
+# Интервал обновления в секундах (6 часов = 21600 секунд)
+DATA_REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 
 # --- Инициализация ---
 sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins=CORS_ALLOWED_ORIGINS)
@@ -36,8 +39,7 @@ coin_names = {}
 # --- Функции-помощники ---
 def update_app_data_from_binance(symbols_to_fetch):
     """
-    Запрашивает exchangeInfo для получения всех валидных символов
-    и ticker/price для предзагрузки цен для начального списка.
+    Запрашивает exchangeInfo, все активы (для имен) и опционально цены.
     """
     global latest_prices, valid_usdt_symbols, coin_names
     print("Fetching all valid symbols and initial prices from Binance...")
@@ -69,7 +71,6 @@ def update_app_data_from_binance(symbols_to_fetch):
         assets_data = response.json()
         
         # Создаем словарь { "BTC": "Bitcoin", "ETH": "Ethereum", ... }
-        # Мы берем assetName, так как он более чистый
         temp_coin_names = {
             asset['assetCode']: asset['assetName']
             for asset in assets_data.get('data', [])
@@ -81,20 +82,22 @@ def update_app_data_from_binance(symbols_to_fetch):
         coin_names = {}
 
     # Предзагружаем цены для нашего стартового списка
-    try:
-        prices_response = requests.get('https://api.binance.com/api/v3/ticker/price', timeout=10)
-        prices_response.raise_for_status()
-        prices_data = prices_response.json()
-        
-        fetched_prices = {
-            item['symbol'][:-4]: float(item['price'])
-            for item in prices_data
-            if item['symbol'].endswith('USDT') and item['symbol'][:-4] in symbols_to_fetch
-        }
-        latest_prices = fetched_prices
-        print(f"Pre-fetched {len(latest_prices)} initial prices.")
-    except Exception as e:
-        print(f"!!! Could not pre-fetch initial prices: {e}")
+    if symbols_to_fetch:
+        print(f"Pre-fetching initial prices for: {symbols_to_fetch}")
+        try:
+            prices_response = requests.get('https://api.binance.com/api/v3/ticker/price', timeout=10)
+            prices_response.raise_for_status()
+            prices_data = prices_response.json()
+            
+            fetched_prices = {
+                item['symbol'][:-4]: float(item['price'])
+                for item in prices_data
+                if item['symbol'].endswith('USDT') and item['symbol'][:-4] in symbols_to_fetch
+            }
+            latest_prices = fetched_prices
+            print(f"Pre-fetched {len(latest_prices)} initial prices.")
+        except Exception as e:
+            print(f"!!! Could not pre-fetch initial prices: {e}")
 
 # --- Асинхронные задачи ---
 async def run_telegram_bot_task(app_instance):
@@ -114,9 +117,12 @@ async def main_background_tasks(app_instance):
     binance_client = BinanceWsClient(get_symbols_func=lambda: current_symbols, sio_server=sio, latest_prices_ref=latest_prices)
     
     binance_task = asyncio.create_task(binance_client.run())
+    updater_task = asyncio.create_task(periodic_data_updater())
+
     background_tasks['binance'] = binance_task
+    background_tasks['updater'] = updater_task
     
-    tasks_to_run = [binance_task]
+    tasks_to_run = [binance_task, updater_task]
 
     if TELEGRAM_BOT_TOKEN:
         telegram_task = asyncio.create_task(run_telegram_bot_task(app_instance))
@@ -124,6 +130,20 @@ async def main_background_tasks(app_instance):
         tasks_to_run.append(telegram_task)
     
     await asyncio.gather(*tasks_to_run)
+
+async def periodic_data_updater():
+    """
+    Бесконечный цикл, который периодически обновляет данные с Binance.
+    """
+    while True:
+        try:
+            print(f"--- Running periodic data update. Next update in {DATA_REFRESH_INTERVAL_SECONDS / 3600} hours. ---")
+            update_app_data_from_binance(symbols_to_fetch=[])
+        except Exception as e:
+            print(f"!!! ERROR during periodic data update: {e}")
+        
+        # "Спим" до следующего обновления
+        await asyncio.sleep(DATA_REFRESH_INTERVAL_SECONDS)
 
 # HTTP ЭНДПОИНТ ДЛЯ ВАЛИДАЦИИ
 async def validate_symbol(request):

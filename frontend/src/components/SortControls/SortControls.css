@@ -1,0 +1,120 @@
+.sort-controls-wrapper {
+  position: relative;
+}
+
+.sort-trigger-btn {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  background-color: transparent;
+  color: #fff;
+  width: 40px;
+  height: 30px;
+  padding: 5px;
+  cursor: pointer;
+  transition: background-color .2s, box-shadow .2s;
+}
+
+.sort-trigger-btn.active {
+  background-color: var(--color-bg-input);
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.sort-trigger-btn span {
+  width: 100%;
+  height: 2px;
+  background-color: var(--color-secondary-text);
+  transition: width .2s;
+}
+
+.sort-trigger-btn span:nth-of-type(2) {
+  width: 75%;
+}
+
+.sort-trigger-btn span:nth-of-type(3) {
+  width: 50%;
+}
+
+.sort-trigger-btn:hover span,
+.sort-trigger-btn.active span {
+  width: 100%;
+}
+
+
+/* Стили для выпадающего меню */
+.sort-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  /* Появляется под кнопкой с отступом 8px */
+  right: 0;
+  width: 220px;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-bg-input);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+  overflow: hidden;
+}
+
+.sort-menu-header {
+  padding: 10px;
+  color: var(--color-secondary-text);
+  border-bottom: 1px solid var(--color-bg-input);
+}
+
+.sort-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+
+.sort-menu-item button {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--color-secondary-text);
+  padding: 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sort-menu-item button:hover {
+  background-color: var(--color-bg-input);
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+.sort-menu-item button.active {
+  color: var(--color-text);
+  background-color: var(--color-bg-input);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.sort-indicator {
+  font-size: 0.8em;
+}
+
+/* Анимация для меню */
+.sort-menu-enter {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+}
+
+.sort-menu-enter-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 200ms, transform 200ms;
+}
+
+.sort-menu-exit {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.sort-menu-exit-active {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+  transition: opacity 200ms, transform 200ms;
+}

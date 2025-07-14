@@ -41,6 +41,13 @@
   box-shadow: none;
 }
 
+.list-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 30px;
+}
+
 .crypto-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

@@ -4,6 +4,7 @@
 @import url(./components/PriceAlertForm/PriceAlertForm.css);
 @import url(./components/AddCryptoForm/AddCryptoForm.css);
 @import url(./components/SearchBar/SearchBar.css);
+@import url(./components/SortControls/SortControls.css);
 
 :root {
   --color-bg-page: #242424;

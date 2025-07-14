@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useCallback, createRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  createRef,
+  useMemo,
+} from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import { socket } from '../../socket.js';
@@ -6,6 +13,7 @@ import './App.css';
 import CryptoCard from '../CryptoCard/CryptoCard.jsx';
 import AddCryptoForm from '../AddCryptoForm/AddCryptoForm.jsx';
 import SearchBar from '../SearchBar/SearchBar.jsx';
+import SortControls from '../SortControls/SortControls.jsx';
 import { sendMessage as sendTelegramMessageViaBackend } from '../../services/telegramService.js';
 import notificationSound from '../../assets/notification.mp3';
 
@@ -96,6 +104,10 @@ export default function App() {
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState({
+    key: 'pair',
+    direction: 'ascending',
+  });
 
   const audioRef = useRef(null);
   const triggeredAlertsRef = useRef({});
@@ -178,13 +190,6 @@ export default function App() {
             const newInfo = data.cryptos.find(
               (c) => c.symbol === existingCrypto.symbol,
             );
-            // return newInfo
-            //   ? {
-            //       ...existingCrypto,
-            //       price: newInfo.price,
-            //       previousPrice: newInfo.price,
-            //     }
-            //   : existingCrypto;
             if (newInfo) {
               return {
                 ...existingCrypto,
@@ -375,6 +380,27 @@ export default function App() {
       crypto.name.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
+  // Создаем отсортированный массив с помощью useMemo
+  const sortedAndFilteredCryptos = useMemo(() => {
+    let sortableItems = [...filteredCryptos]; // Создаем копию, чтобы не мутировать исходный массив
+
+    if (sortConfig.key !== null) {
+      sortableItems.sort((a, b) => {
+        if (a[sortConfig.key] === null) return 1;
+        if (b[sortConfig.key] === null) return -1;
+        // Сортировка
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [filteredCryptos, sortConfig]);
+
   return (
     <div className="App">
       <header>
@@ -392,7 +418,10 @@ export default function App() {
         >
           Добавить монету
         </button>
-        <SearchBar searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
+        <div className="list-controls">
+          <SearchBar searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
+          <SortControls sortConfig={sortConfig} setSortConfig={setSortConfig} />
+        </div>
       </header>
 
       <main>
@@ -401,7 +430,7 @@ export default function App() {
           className="crypto-list"
           style={{ opacity: hasReceivedData ? '1' : '.5' }}
         >
-          {filteredCryptos.map((crypto) => (
+          {sortedAndFilteredCryptos.map((crypto) => (
             <CSSTransition
               key={crypto.id}
               nodeRef={crypto.nodeRef}
@@ -449,7 +478,7 @@ export default function App() {
         toastOptions={{
           duration: 5000,
           style: {
-            borderRadius: '8px',
+            borderRadius: '4px',
             background: '#2e2e2e',
             color: '#fff',
           },

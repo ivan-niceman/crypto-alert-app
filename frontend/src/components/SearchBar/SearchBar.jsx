@@ -6,7 +6,7 @@ export default function SearchBar({ searchTerm, setSearchTerm }) {
       <SearchIcon />
       <input
         type="text"
-        placeholder="Поиск по имени или тикеру..."
+        placeholder="Поиск"
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
       />
