@@ -1,5 +1,4 @@
 import logging
-import os
 import asyncio
 import requests
 
@@ -110,15 +109,38 @@ async def run_telegram_bot_task(app_instance):
         await ptb_app.updater.start_polling()
         print("Telegram bot is running.")
         if TELEGRAM_CHAT_ID:
-            await ptb_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="Привет! Добро пожаловать в бот CryptoAlert.")
+            await ptb_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="Привет! Добро пожаловать в бот CryptOn!")
         await ptb_app.updater.running
 
-async def main_background_tasks(app_instance):
-    binance_client = BinanceWsClient(get_symbols_func=lambda: current_symbols, sio_server=sio, latest_prices_ref=latest_prices)
+# async def main_background_tasks(app_instance):
+#     binance_client = BinanceWsClient(get_symbols_func=lambda: current_symbols, sio_server=sio, latest_prices_ref=latest_prices)
     
-    binance_task = asyncio.create_task(binance_client.run())
+#     binance_task = asyncio.create_task(binance_client.run())
+#     updater_task = asyncio.create_task(periodic_data_updater())
+
+#     background_tasks['binance'] = binance_task
+#     background_tasks['updater'] = updater_task
+    
+#     tasks_to_run = [binance_task, updater_task]
+
+#     if TELEGRAM_BOT_TOKEN:
+#         telegram_task = asyncio.create_task(run_telegram_bot_task(app_instance))
+#         background_tasks['telegram'] = telegram_task
+#         tasks_to_run.append(telegram_task)
+    
+#     await asyncio.gather(*tasks_to_run)
+
+async def main_background_tasks(app_instance):
+    binance_task = asyncio.create_task(
+        BinanceWsClient(
+            get_symbols_func=lambda: current_symbols, 
+            sio_server=sio, 
+            latest_prices_ref=latest_prices
+        ).run()
+    )
     updater_task = asyncio.create_task(periodic_data_updater())
 
+    # Сохраняем в словарь
     background_tasks['binance'] = binance_task
     background_tasks['updater'] = updater_task
     
@@ -174,7 +196,6 @@ async def connect(sid, environ, auth=None):
                     'name': coin_names.get(s, s) # Берем имя из кэша
                 } for s, p in prices_to_send.items()
             ]
-            # await sio.emit('initial_prices', {'cryptos': [{'symbol': s, 'price': p} for s, p in prices_to_send.items()]}, to=sid)
             await sio.emit('initial_prices', {'cryptos': initial_data}, to=sid)
             print(f"Sent initial_prices for {len(prices_to_send)} symbols to {sid}")
 

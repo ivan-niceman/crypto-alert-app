@@ -66,7 +66,12 @@ async def receive_price_message(update: Update, context: ContextTypes.DEFAULT_TY
         return TYPING_PRICE
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text('Действие отменено.')
+    query = update.callback_query
+    if query:
+        await query.answer()
+        await query.edit_message_text(text='Действие отменено.')
+    elif update.message:
+        await update.message.reply_text('Действие отменено.')
     context.user_data.clear()
     return ConversationHandler.END
 

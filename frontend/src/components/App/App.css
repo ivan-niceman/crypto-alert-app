@@ -37,6 +37,11 @@
   transition: box-shadow 0.3s;
 }
 
+.add-crypto-btn:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
 .add-crypto-btn:hover {
   box-shadow: none;
 }

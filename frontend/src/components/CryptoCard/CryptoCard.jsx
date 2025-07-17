@@ -69,13 +69,13 @@ const CryptoCard = forwardRef(
       );
     }, [price, previousPrice]);
 
-    const tradingViewUrl = `https://www.binance.com/ru/trade/${symbol}_USDT`;
+    const binanceViewUrl = `https://www.binance.com/ru/trade/${symbol}_USDT`;
 
     return (
       <li className="crypto-card" ref={ref}>
         <div className="crypto-card-header">
           <a
-            href={tradingViewUrl}
+            href={binanceViewUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="crypto-pair-name"
@@ -97,13 +97,15 @@ const CryptoCard = forwardRef(
         <div className="crypto-card-body">
           <div className="crypto-card-container">
             <div>
-              <p className={`crypto-card-price ${priceIndicatorClass}`}>
-                {price !== null
-                  ? parseFloat(price.toFixed(5))
-                  : previousPrice !== null
-                  ? parseFloat(previousPrice.toFixed(5))
-                  : '...'}
-                {price !== null && (
+              {price === null ? (
+                <div className="loading-dots">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              ) : (
+                <p className={`crypto-card-price ${priceIndicatorClass}`}>
+                  {parseFloat(price.toFixed(5))}
                   <span
                     className="crypto-card-change-percent"
                     title="Изменение цены за 24 часа"
@@ -111,8 +113,8 @@ const CryptoCard = forwardRef(
                     {priceChangePercent > 0 ? '+' : ''}
                     {priceChangePercent.toFixed(2)}%
                   </span>
-                )}
-              </p>
+                </p>
+              )}
               {lastTriggeredPrice && (
                 <p
                   className="last-triggered-alert-price"
@@ -125,7 +127,7 @@ const CryptoCard = forwardRef(
             <button
               className="crypto-card-btn"
               onClick={handleToggleForm}
-              disabled={isLimitReached && !showForm}
+              disabled={price === null || (isLimitReached && !showForm)}
             >
               {showForm
                 ? 'Скрыть форму'

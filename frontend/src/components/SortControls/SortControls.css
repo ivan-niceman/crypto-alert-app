@@ -41,17 +41,14 @@
   width: 100%;
 }
 
-
-/* Стили для выпадающего меню */
 .sort-menu {
   position: absolute;
   top: calc(100% + 8px);
-  /* Появляется под кнопкой с отступом 8px */
   right: 0;
   width: 220px;
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-bg-input);
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   z-index: 10;
   overflow: hidden;

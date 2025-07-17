@@ -115,26 +115,37 @@ export default function App() {
   const addFormNodeRef = useRef(null);
 
   // Удаляем проверку на количество алертов, оставляем только проверку на дубликаты
-  const addAlert = useCallback((pair, targetPrice) => {
-    const price = Number(targetPrice);
-    if (!(price > 0)) {
-      console.error('Invalid price format');
-      return;
-    }
-    setAlerts((prev) => {
-      const currentAlerts = prev[pair] ?? [];
-      if (currentAlerts.find(({ price: p }) => p === price)) return prev;
-      if (currentAlerts.length >= MAX_ALERTS_PER_PAIR) {
-        console.warn(`Alert limit for ${pair} reached.`);
-        return prev;
+  const addAlert = useCallback(
+    (pair, targetPrice) => {
+      const price = Number(targetPrice);
+      if (!(price > 0)) {
+        toast.error('Неверный формат цены.');
+        return;
       }
 
-      return {
-        ...prev,
-        [pair]: [...currentAlerts, { price }].sort((a, b) => a.price - b.price),
-      };
-    });
-  }, []);
+      const currentAlerts = alerts[pair] ?? [];
+
+      if (currentAlerts.some((a) => a.price === price)) {
+        toast.error(`Цель ${price} для ${pair} уже установлена.`);
+        return;
+      }
+
+      if (currentAlerts.length >= MAX_ALERTS_PER_PAIR) {
+        toast.error(`Достигнут лимит алертов для ${pair}`);
+        return;
+      }
+
+      toast.success(`Установлена цель для ${pair} на ${price} USDT`);
+
+      setAlerts((prev) => {
+        const newAlertsForPair = [...(prev[pair] ?? []), { price }].sort(
+          (a, b) => a.price - b.price,
+        );
+        return { ...prev, [pair]: newAlertsForPair };
+      });
+    },
+    [alerts],
+  );
 
   const removeAlert = useCallback((pair, targetPriceToRemove) => {
     setAlerts((prev) => {
@@ -221,7 +232,10 @@ export default function App() {
     };
 
     const onAddAlertFromBot = (data) => {
-      if (data?.pair && data.price) addAlert(data.pair, data.price);
+      if (data?.pair && data.price) {
+        addAlert(data.pair, data.price);
+        toast(`Добавлен алерт для ${data.pair} из Telegram`, { icon: '🤖' });
+      }
     };
 
     socket.on('connect', onConnect);
@@ -348,11 +362,7 @@ export default function App() {
             5,
           )} USDT. (Сейчас: ${currentPrice.toFixed(5)} USDT)`;
 
-          console.log(
-            `АЛЕРТ СРАБОТАЛ! ${pairKey} ${movementText} ${targetPrice.toFixed(
-              5,
-            )}`,
-          );
+          toast.success(message, { duration: 10000, icon: '🔔' });
           playNotificationSound();
           sendTelegramMessageViaBackend(message);
           triggeredAlertsRef.current[alertId] = true;
@@ -414,7 +424,7 @@ export default function App() {
         <button
           className="add-crypto-btn"
           onClick={() => setIsAddFormVisible(true)}
-          style={{ opacity: hasReceivedData ? '1' : '.5' }}
+          disabled={!hasReceivedData}
         >
           Добавить монету
         </button>
